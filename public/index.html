@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dim">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cline Relay UI</title>
+<script>
+  try {
+    var t = localStorage.getItem("relay-theme");
+    if (t) document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+</script>
+<style>
+  /* ===================== 主题 ===================== */
+  :root[data-theme="dim"] {
+    --bg:#1a1e26; --panel:#222732; --panel2:#2a303c; --line:#39414f;
+    --fg:#e9ecf2; --dim:#98a1b3; --accent:#6aa6ff;
+    --ok:#4cc98a; --warn:#e8b05c; --err:#ef6b74;
+    --shadow:0 1px 2px rgba(0,0,0,.25);
+  }
+  :root[data-theme="light"] {
+    --bg:#eef1f5; --panel:#ffffff; --panel2:#f4f6f9; --line:#d5dbe4;
+    --fg:#1b2029; --dim:#5f6a7d; --accent:#2563eb;
+    --ok:#12855a; --warn:#9a6207; --err:#c0392f;
+    --shadow:0 1px 2px rgba(20,30,50,.08);
+  }
+  :root[data-theme="dark"] {
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212a; --line:#2a2f3a;
+    --fg:#e6e9ef; --dim:#8b93a3; --accent:#5b9dff;
+    --ok:#45c17a; --warn:#e0a34a; --err:#e2606a;
+    --shadow:none;
+  }
+  :root { --bubbleA: color-mix(in srgb, var(--accent) 16%, var(--panel2));
+          --bubbleB: color-mix(in srgb, var(--warn) 16%, var(--panel2)); }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); overflow: hidden;
+    font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: .92em;
+         background: var(--panel2); padding: 1px 4px; border-radius: 4px; }
+
+  /* ===================== 顶栏 ===================== */
+  header {
+    display: flex; align-items: center; gap: 10px; height: 46px;
+    padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel);
+    box-shadow: var(--shadow); position: relative; z-index: 20;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .3px; white-space: nowrap; }
+  .spacer { flex: 1; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px;
+           border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+  .badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .badge.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent); }
+  .badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--dim);
+                padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
+  .seg button:hover:not([aria-pressed="true"]) { background: var(--panel2); color: var(--fg); }
+
+  /* ===================== 主体 / 分栏 ===================== */
+  /* 显式指定 grid-column：这样隐藏某一栏(display:none)时，
+     其余两栏不会因为移除出 grid 流而发生列索引错位。 */
+  #shell { display: grid; height: calc(100vh - 46px); grid-template-columns: var(--lw, 480px) 5px 1fr; }
+  #left  { grid-column: 1; }
+  #split { grid-column: 2; }
+  #right { grid-column: 3; }
+
+  /* 隐藏某一栏时，另一栏铺满 —— 否则点 ->| 后左栏宽度不变，看起来像按钮无效 */
+  #shell.no-left  { grid-template-columns: 0 0 1fr; }
+  #shell.no-right { grid-template-columns: 1fr 0 0; }
+  #shell.no-left #left, #shell.no-right #right { display: none; }
+  #shell.no-left #split, #shell.no-right #split { display: none; }
+
+  #left { overflow: auto; padding: 14px; border-right: 1px solid var(--line); background: var(--bg); min-width: 0; }
+  #right { overflow: hidden; display: flex; flex-direction: column; background: var(--bg); min-width: 0; }
+
+  #split { cursor: col-resize; background: transparent; position: relative; }
+  #split::after { content:""; position: absolute; inset: 0 2px; background: var(--line); }
+  #split:hover::after, #split.drag::after { background: var(--accent); }
+
+  /* ===================== 表单 ===================== */
+  fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 0 0 12px;
+             padding: 11px 13px 13px; background: var(--panel); box-shadow: var(--shadow); }
+  legend { font-size: 12px; color: var(--dim); padding: 0 6px; text-transform: uppercase; letter-spacing: .8px; }
+  label { display: block; margin: 9px 0 3px; font-size: 12px; color: var(--dim); }
+  label:first-of-type { margin-top: 0; }
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; background: var(--panel2); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; font: inherit; outline: none; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  input:disabled, select:disabled, textarea:disabled { opacity: .5; }
+  textarea { resize: vertical; min-height: 58px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+  .switch { display: flex; align-items: center; gap: 9px; margin: 9px 0; }
+  .switch input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .hint { font-size: 11.5px; color: var(--dim); margin-top: 4px; }
+  .hint.warn { color: var(--warn); } .hint.ok { color: var(--ok); }
+  .srcbox { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 9px; }
+
+  /* 左栏吸顶操作条 */
+  #leftTop {
+    position: sticky; top: -14px; z-index: 8;
+    display: flex; justify-content: flex-end; gap: 8px;
+    margin: -14px -14px 12px; padding: 10px 14px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--line);
+  }
+  #leftTop button { padding: 7px 18px; }
+  button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+           border-radius: 8px; padding: 7px 13px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { background: color-mix(in srgb, var(--err) 22%, transparent); border-color: var(--err); color: var(--err); }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #notice { margin-top: 9px; font-size: 12.5px; }
+  .msg-err { color: var(--err); } .msg-ok { color: var(--ok); }
+
+  /* ===================== 微信式聊天 ===================== */
+  #chatHead {
+    display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel); flex: 0 0 auto;
+  }
+  #chatHead .t { font-weight: 600; font-size: 13.5px; }
+  #chatBody {
+    flex: 1 1 auto; overflow: auto; padding: 16px 18px 8px;
+    background:
+      radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 45%),
+      var(--bg);
+  }
+
+  .msg { display: flex; gap: 10px; margin-bottom: 16px; align-items: flex-start; }
+  .msg.A { flex-direction: row; }
+  .msg.B { flex-direction: row-reverse; }
+  .av { flex: 0 0 34px; width: 34px; height: 34px; border-radius: 6px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 13px; color: #fff; user-select: none; }
+  .msg.A .av { background: var(--accent); }
+  .msg.B .av { background: var(--warn); }
+  .col { max-width: min(74%, 720px); min-width: 0; }
+  .msg.B .col { align-items: flex-end; }
+  .who { font-size: 11.5px; color: var(--dim); margin-bottom: 3px; display: flex; gap: 7px; align-items: center; }
+  .msg.B .who { flex-direction: row-reverse; }
+  .bub { padding: 9px 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-word;
+         font-size: 13px; border: 1px solid var(--line); box-shadow: var(--shadow); }
+  .msg.A .bub { background: var(--bubbleA); border-top-left-radius: 2px; }
+  .msg.B .bub { background: var(--bubbleB); border-top-right-radius: 2px; }
+  .bub.guard { background: color-mix(in srgb, var(--warn) 18%, var(--panel2)); color: var(--warn); }
+  .bub.sys   { background: var(--panel2); color: var(--dim); font-style: italic; }
+  .stamp { font-size: 10.5px; color: var(--dim); margin-top: 4px; font-family: ui-monospace, Consolas, monospace; }
+  .msg.B .stamp { text-align: right; }
+
+  /* 居中的系统事件胶囊（只用于新建/分叉提示、停止原因、错误） */
+  .sysline { display: flex; justify-content: center; margin: 4px 0 16px; }
+  .sysline span { font-size: 11.5px; color: var(--dim); background: var(--panel2);
+                  border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; }
+  .sysline.err span { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent); }
+  .sysline.ok span  { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+
+  #chatEmpty { color: var(--dim); text-align: center; padding: 60px 20px; }
+
+  #fatal { display: none; padding: 14px 18px;
+           background: color-mix(in srgb, var(--err) 16%, var(--panel));
+           border-bottom: 1px solid color-mix(in srgb, var(--err) 45%, transparent); font-size: 13px; }
+  #fatal b { color: var(--err); }
+  #fatal code { background: var(--panel2); padding: 2px 6px; border-radius: 4px; }
+  #fatal ol { margin: 8px 0 0; padding-left: 20px; }
+  body.resizing { cursor: col-resize; user-select: none; }
+</style>
+</head>
+<body>
+
+<div id="fatal"></div>
+
+<header>
+  <h1>Cline Relay UI</h1>
+  <span class="badge" id="bSdk">SDK 检测中…</span>
+  <span class="badge" id="bState">空闲</span>
+  <span class="spacer"></span>
+  <div class="seg" id="paneSeg">
+    <button data-pane="left"  title="显示/隐藏左栏（Ctrl+B）">|&lt;-</button>
+    <button data-pane="right" title="显示/隐藏右栏（Ctrl+J）">-&gt;|</button>
+  </div>
+  <span class="badge" id="bSaved">未保存</span>
+  <div class="seg" id="themeSeg">
+    <button data-theme="light" aria-pressed="false">亮</button>
+    <button data-theme="dim" aria-pressed="true">柔暗</button>
+    <button data-theme="dark" aria-pressed="false">暗</button>
+  </div>
+</header>
+
+<div id="shell">
+  <!-- ==================== 左：配置 ==================== -->
+  <div id="left">
+    <!-- 吸顶操作条：始终在左栏右上角，不随内容滚动 -->
+    <div id="leftTop">
+      <button class="primary" id="btnRun">开始乒乓</button>
+      <button class="danger" id="btnStop" disabled>停止</button>
+    </div>
+
+    <fieldset>
+      <legend>模型与凭据</legend>
+      <label>Provider</label>
+      <select id="providerId"></select>
+      <label>Model</label>
+      <input type="text" id="modelId" list="modelList" placeholder="从 datalist 选，或手填" />
+      <datalist id="modelList"></datalist>
+      <div class="hint" id="modelInfo">模型能力：读取中…</div>
+
+      <label>推理等级 reasoning effort</label>
+      <select id="thinking">
+        <option value="none">none（不请求推理）</option><option value="low">low</option>
+        <option value="medium">medium</option><option value="high">high</option>
+        <option value="xhigh">xhigh</option>
+      </select>
+      <div class="switch"><input type="checkbox" id="adaptiveThinking" /><span>Adaptive Thinking（模型自行调节思考量）</span></div>
+      <div class="switch"><input type="checkbox" id="promptCache" /><span>Prompt Cache（提示词缓存）</span></div>
+
+      <div class="hint" id="forkNote">凭据自动从 <code>providers.json</code> 读取，界面上不显示任何密钥。</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>角色 A</legend>
+      <div class="row">
+        <div><label>名称</label><input type="text" id="a_name" /></div>
+        <div><label>会话 ID</label><div class="hint" id="a_session" style="margin-top:8px">未创建</div></div>
+      </div>
+      <label>系统提示词 <span style="color:var(--dim)">— 角色设定，不会作为消息发出</span></label>
+      <textarea id="a_systemPrompt"></textarea>
+      <div class="srcbox">
+        <label>来源</label>
+        <div class="seg" style="width:100%" id="a_modeSeg">
+          <button style="flex:1" data-side="a" data-mode="blank" aria-pressed="true">空白新建</button>
+          <button style="flex:1" data-side="a" data-mode="fork" aria-pressed="false">从历史会话分叉</button>
+        </div>
+        <div id="a_forkBox" style="display:none">
+          <label>筛选</label>
+          <div class="row3">
+            <select id="a_fStatus"><option value="">Status: All</option></select>
+            <select id="a_fSource"><option value="">Source: All sources</option></select>
+            <select id="a_fSort">
+              <option value="desc">时间 ↓ 最新</option>
+              <option value="asc">时间 ↑ 最旧</option>
+            </select>
+          </div>
+          <label>选择历史会话</label><select id="a_sessionId"></select>
+          <div class="hint" id="a_forkHint"></div>
+          <div class="hint">分叉后会把该会话<b>最后一条文本</b>作为第一条发出的消息；取不到会自动兜底。</div>
+
+        </div>
+
+        <div class="srcbox">
+          <div class="switch"><input type="checkbox" id="a_full" /><span>本角色单独设置下列能力（不勾选则全部跟随全局）</span></div>
+          <div id="a_fullBox" style="display:none">
+
+            <label>Mode（AgentMode: act / plan / yolo / zen）</label>
+            <select id="a_mode">
+              <option value="act">act</option><option value="plan">plan</option>
+              <option value="yolo">yolo</option><option value="zen">zen</option>
+            </select>
+
+            <label>Provider / 凭据</label>
+            <select id="a_providerId"></select>
+            <label>Model</label>
+            <input type="text" id="a_modelId" list="modelList" placeholder="留空则跟随全局" />
+            <datalist id="modelList_a"></datalist>
+            <div class="hint" id="a_modelInfo">模型能力：—</div>
+            <label>reasoning effort</label>
+            <select id="a_thinking">
+              <option value="">跟随全局</option><option value="none">none</option><option value="low">low</option>
+              <option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option>
+            </select>
+            <div class="switch"><input type="checkbox" id="a_adaptiveThinking" /><span>Adaptive Thinking</span></div>
+            <div class="switch"><input type="checkbox" id="a_promptCache" /><span>Prompt Cache</span></div>
+
+            <label>该角色自己的工作目录（留空跟随全局）</label>
+            <input type="text" id="a_cwd" placeholder="留空 = 跟随全局项目文件夹" />
+
+            <div class="switch"><input type="checkbox" id="a_planActSeparate" /><span>本角色 Plan / Act 使用不同模型</span></div>
+            <div id="a_planActBox" style="display:none">
+              <div class="row">
+                <div><label>Plan Provider</label><select id="a_planProviderId"></select></div>
+                <div><label>Plan Model</label><input type="text" id="a_planModelId" /></div>
+              </div>
+              <div class="row">
+                <div><label>Act Provider</label><select id="a_actProviderId"></select></div>
+                <div><label>Act Model</label><input type="text" id="a_actModelId" /></div>
+              </div>
+            </div>
+            <label>OCA Mode</label>
+            <select id="a_ocaMode"><option value="">跟随全局</option><option value="internal">Internal</option><option value="external">External</option></select>
+
+            <hr style="border:0;border-top:1px dashed var(--line);margin:12px 0" />
+
+            <label style="font-weight:600;color:var(--fg)">Auto-approve（本角色）</label>
+            <div class="switch"><input type="checkbox" id="a_aaEnabled" /><span>启用自动批准</span></div>
+            <label>Max Requests</label>
+            <input type="number" id="a_aaMaxRequests" min="0" max="100" placeholder="0 = 跟随全局" />
+            <div id="a_aaActions"></div>
+            <div class="switch"><input type="checkbox" id="a_aaWebSearch" /><span>Web Search</span></div>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">工具能力（本角色）</label>
+            <label>预设</label>
+            <select id="a_toolPreset">
+              <option value="act">act</option><option value="plan">plan</option>
+              <option value="search">search</option><option value="minimal">minimal</option>
+              <option value="yolo">yolo</option>
+            </select>
+            <div id="a_toolToggles"></div>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">扩展能力（本角色）</label>
+            <div id="a_caps"></div>
+            <div class="hint">下面两个开关是 SDK 里真能按角色控制的；Rules / Workflows / Hooks 由 Cline 按该角色的工作目录自动发现，<b>没有按会话开关</b>，所以只读列出真实路径。</div>
+            <div id="a_capScan" class="srcbox" style="margin-top:8px"></div>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">Add Context</label>
+            <label>预载某个历史会话的对话作为上下文</label>
+            <select id="a_ctxFrom"></select>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">Add Files &amp; Images</label>
+            <label>图片（data URL / 本地路径，每行一个）</label>
+            <textarea id="a_images" placeholder="data:image/png;base64,...&#10;D:\pics\shot.png"></textarea>
+            <label>文件（每行一个）</label>
+            <textarea id="a_files" placeholder="D:\proj\notes.md"></textarea>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">执行隔离（本角色，有副作用）</label>
+            <div class="switch"><input type="checkbox" id="a_ckEnabled" /><span>Checkpoints（本角色 git 卡点）</span></div>
+            <div class="switch"><input type="checkbox" id="a_wtEnabled" /><span>Worktrees（本角色独立 worktree）</span></div>
+            <div class="switch"><input type="checkbox" id="a_cmpEnabled" /><span>启用上下文压缩</span></div>
+            <label>压缩策略</label>
+            <select id="a_cmpStrategy">
+              <option value="">跟随全局</option><option value="agentic">agentic</option>
+              <option value="basic">basic</option><option value="off">off</option>
+            </select>
+            <label>backendMode</label>
+            <select id="a_backendMode">
+              <option value="">跟随全局</option><option value="local">local</option>
+              <option value="auto">auto</option><option value="hub">hub</option>
+            </select>
+          </div>
+        </div>
+        <div id="a_seedBox">
+          <label>开场 prompt <span style="color:var(--warn)">— 第一条实际发出的消息，不能为空</span></label>
+          <textarea id="a_seedPrompt"></textarea>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>角色 B</legend>
+      <div class="row">
+        <div><label>名称</label><input type="text" id="b_name" /></div>
+        <div><label>会话 ID</label><div class="hint" id="b_session" style="margin-top:8px">未创建</div></div>
+      </div>
+      <label>系统提示词 <span style="color:var(--dim)">— 角色设定，不会作为消息发出</span></label>
+      <textarea id="b_systemPrompt"></textarea>
+      <div class="srcbox">
+        <label>来源</label>
+        <div class="seg" style="width:100%" id="b_modeSeg">
+          <button style="flex:1" data-side="b" data-mode="blank" aria-pressed="true">空白新建</button>
+          <button style="flex:1" data-side="b" data-mode="fork" aria-pressed="false">从历史会话分叉</button>
+        </div>
+        <div id="b_forkBox" style="display:none">
+          <label>筛选</label>
+          <div class="row3">
+            <select id="b_fStatus"><option value="">Status: All</option></select>
+            <select id="b_fSource"><option value="">Source: All sources</option></select>
+            <select id="b_fSort">
+              <option value="desc">时间 ↓ 最新</option>
+              <option value="asc">时间 ↑ 最旧</option>
+            </select>
+          </div>
+          <label>选择历史会话</label><select id="b_sessionId"></select>
+          <div class="hint" id="b_forkHint"></div>
+          <div class="hint">分叉后会把该会话<b>最后一条文本</b>作为第一条发出的消息；取不到会自动兜底。</div>
+
+        </div>
+
+        <div class="srcbox">
+          <div class="switch"><input type="checkbox" id="b_full" /><span>本角色单独设置下列能力（不勾选则全部跟随全局）</span></div>
+          <div id="b_fullBox" style="display:none">
+
+            <label>Mode（AgentMode: act / plan / yolo / zen）</label>
+            <select id="b_mode">
+              <option value="act">act</option><option value="plan">plan</option>
+              <option value="yolo">yolo</option><option value="zen">zen</option>
+            </select>
+
+            <label>Provider / 凭据</label>
+            <select id="b_providerId"></select>
+            <label>Model</label>
+            <input type="text" id="b_modelId" list="modelList" placeholder="留空则跟随全局" />
+            <datalist id="modelList_b"></datalist>
+            <div class="hint" id="b_modelInfo">模型能力：—</div>
+            <label>reasoning effort</label>
+            <select id="b_thinking">
+              <option value="">跟随全局</option><option value="none">none</option><option value="low">low</option>
+              <option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option>
+            </select>
+            <div class="switch"><input type="checkbox" id="b_adaptiveThinking" /><span>Adaptive Thinking</span></div>
+            <div class="switch"><input type="checkbox" id="b_promptCache" /><span>Prompt Cache</span></div>
+
+            <label>该角色自己的工作目录（留空跟随全局）</label>
+            <input type="text" id="b_cwd" placeholder="留空 = 跟随全局项目文件夹" />
+
+            <div class="switch"><input type="checkbox" id="b_planActSeparate" /><span>本角色 Plan / Act 使用不同模型</span></div>
+            <div id="b_planActBox" style="display:none">
+              <div class="row">
+                <div><label>Plan Provider</label><select id="b_planProviderId"></select></div>
+                <div><label>Plan Model</label><input type="text" id="b_planModelId" /></div>
+              </div>
+              <div class="row">
+                <div><label>Act Provider</label><select id="b_actProviderId"></select></div>
+                <div><label>Act Model</label><input type="text" id="b_actModelId" /></div>
+              </div>
+            </div>
+            <label>OCA Mode</label>
+            <select id="b_ocaMode"><option value="">跟随全局</option><option value="internal">Internal</option><option value="external">External</option></select>
+
+            <hr style="border:0;border-top:1px dashed var(--line);margin:12px 0" />
+
+            <label style="font-weight:600;color:var(--fg)">Auto-approve（本角色）</label>
+            <div class="switch"><input type="checkbox" id="b_aaEnabled" /><span>启用自动批准</span></div>
+            <label>Max Requests</label>
+            <input type="number" id="b_aaMaxRequests" min="0" max="100" placeholder="0 = 跟随全局" />
+            <div id="b_aaActions"></div>
+            <div class="switch"><input type="checkbox" id="b_aaWebSearch" /><span>Web Search</span></div>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">工具能力（本角色）</label>
+            <label>预设</label>
+            <select id="b_toolPreset">
+              <option value="act">act</option><option value="plan">plan</option>
+              <option value="search">search</option><option value="minimal">minimal</option>
+              <option value="yolo">yolo</option>
+            </select>
+            <div id="b_toolToggles"></div>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">扩展能力（本角色）</label>
+            <div id="b_caps"></div>
+            <div class="hint">下面两个开关是 SDK 里真能按角色控制的；Rules / Workflows / Hooks 由 Cline 按该角色的工作目录自动发现，<b>没有按会话开关</b>，所以只读列出真实路径。</div>
+            <div id="b_capScan" class="srcbox" style="margin-top:8px"></div>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">Add Context</label>
+            <label>预载某个历史会话的对话作为上下文</label>
+            <select id="b_ctxFrom"></select>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">Add Files &amp; Images</label>
+            <label>图片（data URL / 本地路径，每行一个）</label>
+            <textarea id="b_images" placeholder="data:image/png;base64,...&#10;D:\pics\shot.png"></textarea>
+            <label>文件（每行一个）</label>
+            <textarea id="b_files" placeholder="D:\proj\notes.md"></textarea>
+
+            <label style="font-weight:600;color:var(--fg);margin-top:14px">执行隔离（本角色，有副作用）</label>
+            <div class="switch"><input type="checkbox" id="b_ckEnabled" /><span>Checkpoints（本角色 git 卡点）</span></div>
+            <div class="switch"><input type="checkbox" id="b_wtEnabled" /><span>Worktrees（本角色独立 worktree）</span></div>
+            <div class="switch"><input type="checkbox" id="b_cmpEnabled" /><span>启用上下文压缩</span></div>
+            <label>压缩策略</label>
+            <select id="b_cmpStrategy">
+              <option value="">跟随全局</option><option value="agentic">agentic</option>
+              <option value="basic">basic</option><option value="off">off</option>
+            </select>
+            <label>backendMode</label>
+            <select id="b_backendMode">
+              <option value="">跟随全局</option><option value="local">local</option>
+              <option value="auto">auto</option><option value="hub">hub</option>
+            </select>
+          </div>
+        </div>
+        <div id="b_seedBox">
+          <label>开场 prompt <span style="color:var(--warn)">— 第一条实际发出的消息，不能为空</span></label>
+          <textarea id="b_seedPrompt"></textarea>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>执行顺序</legend>
+      <label>谁先执行</label>
+      <div class="seg" style="width:100%" id="firstSeg">
+        <button style="flex:1" data-first="A" aria-pressed="true">角色 A 先</button>
+        <button style="flex:1" data-first="B" aria-pressed="false">角色 B 先</button>
+      </div>
+      <div class="hint">先执行的一方会<b>先建会话</b>，并<b>第一个收到</b>另一方的开场文本，之后两者交替。</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>项目文件夹（工作目录）</legend>
+      <label>已保存的文件夹</label>
+      <select id="folderPick"></select>
+      <div class="actions" style="margin-top:8px">
+        <button id="btnBrowse">浏览…</button>
+        <input type="text" id="folderPath" placeholder="或手动粘贴项目绝对路径" style="flex:1" />
+        <button id="btnAddFolder">添加</button>
+      </div>
+      <div class="hint" id="folderHint"></div>
+      <label>当前工作目录（写入 SDK 的 cwd / workspaceRoot）</label>
+      <input type="text" id="cwd" placeholder="留空则用本 UI 目录：只读沙盒" />
+      <div class="hint" id="cwdHint"></div>
+    </fieldset>
+
+
+
+
+    <fieldset>
+      <legend>循环控制</legend>
+      <div class="row">
+        <div><label>最大跳数</label><input type="number" id="maxHops" min="1" max="50" step="1" /></div>
+        <div><label>每跳超时（秒）</label><input type="number" id="timeoutSec" min="10" step="10" /></div>
+      </div>
+      <label>终止关键词（逗号分隔，回复里出现就停）</label>
+      <input type="text" id="stopKeywords" placeholder="TERMINATE, 停止" />
+      <div class="switch"><input type="checkbox" id="stopOnConvergence" /><span>输出收敛时停止（双方内容重复）</span></div>
+      <div class="hint">三重保险：最大跳数 + 关键词 + 收敛判定。</div>
+    </fieldset>
+
+
+    <fieldset>
+      <legend>操作</legend>
+      <div class="actions">
+        <button id="btnSave">保存配置</button>
+        <button id="btnReload">重载</button>
+      </div>
+      <div id="notice"></div>
+    </fieldset>
+  </div>
+
+  <div id="split"></div>
+
+  <!-- ==================== 右：聊天 ==================== -->
+  <div id="right">
+    <div id="chatHead">
+      <span class="t">乒乓对话</span>
+      <span class="badge" id="bHops">0 跳</span>
+      <span class="spacer"></span>
+      <span class="badge" id="bFirst">A 先</span>
+    </div>
+    <div id="chatBody"><div id="chatEmpty">还没有对话。左边配好之后点「开始乒乓」。</div></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# .cmd 必须保持 CRLF：这个项目踩过坑 —— start.cmd 之前是 LF，
+# 在 Windows 上双击无法启动（cmd.exe 会把它当参数而不是批处理）。
+*.cmd text eol=crlf
+
+# 源码统一按 LF 存储，检出时由各平台决定
+*.js text eol=lf
+*.html text eol=lf
+.gitignore text eol=lf
+
+# 二进制
+*.png binary

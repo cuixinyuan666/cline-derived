@@ -1,0 +1,14 @@
+# 运行时状态
+server.pid
+
+# 本地配置（含本机绝对路径，每次运行都会被覆盖）
+config.json
+
+# 依赖
+node_modules/
+
+# 测试产物（每次跑测试都会重新生成）
+screenshots/
+
+# 日志与临时文件
+*.log
